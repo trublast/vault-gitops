@@ -1,0 +1,75 @@
+report_sizes: false
+version: 2
+
+builds:
+  # Vault plugin binary (cmd/plugin-gitops)
+  - id: gitops
+    main: ./cmd/plugin-gitops
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - windows
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+    ldflags:
+      - -s
+      - -w
+      - -extldflags -static
+      - -X {{.ModulePath}}/github.projectVersion=v{{.Version}}
+    binary: "gitops-{{ .Os }}-{{ .Arch }}"
+
+  # CLI tool (cmd/tool)
+  - id: gitops-tool
+    main: ./cmd/tool
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - windows
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+    ldflags:
+      - -s
+      - -w
+      - -extldflags -static
+    binary: "gitops-tool-{{ .Os }}-{{ .Arch }}"
+
+archives:
+  - id: gitops
+    formats: [binary]
+    name_template: "gitops-{{ .Os }}-{{ .Arch }}"
+    ids:
+      - gitops
+  - id: gitops-tool
+    formats: [binary]
+    name_template: "gitops-tool-{{ .Os }}-{{ .Arch }}"
+    ids:
+      - gitops-tool
+
+checksum:
+  name_template: 'SHA256SUMS'
+  algorithm: sha256
+
+signs:
+  - id: sha256
+    artifacts: checksum
+
+sboms:
+  - artifacts: binary
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-rc"
+
+release:
+  draft: true

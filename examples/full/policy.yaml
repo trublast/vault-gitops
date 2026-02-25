@@ -1,0 +1,29 @@
+# Policy (referenced by auth methods)
+---
+path: sys/policies/acl/mypolicy
+data:
+  policy: |
+    path "*" { capabilities = ["read","list"] }
+
+# Password policy (e.g. for userpass or dynamic secrets)
+---
+path: sys/policies/password/example-policy
+data:
+  policy: |
+    length = 20
+    rule "charset" {
+      charset = "abcdefghijklmnopqrstuvwxyz"
+      min-chars = 1
+    }
+    rule "charset" {
+      charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+      min-chars = 1
+    }
+    rule "charset" {
+      charset = "0123456789"
+      min-chars = 1
+    }
+    rule "charset" {
+      charset = "!@#$%^&*()_+-=[]{}|;:,.<>?"
+      min-chars = 1
+    }

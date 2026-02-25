@@ -1,0 +1,19 @@
+path: sys/policies/acl/self-manage-gitops
+data:
+  policy: |
+    # gitops plugin self-manage policy
+
+    # allow to manage git repository configuration
+    path "gitops/configure/git_repository" {
+        capabilities = ["update"]
+    }
+
+    # allow to manage trusted PGP public keys
+    path "gitops/configure/trusted_pgp_public_key/+" {
+        capabilities = ["create" ,"update", "delete"]
+    }
+
+    # allow to manage own policy
+    path "sys/policies/acl/self-manage-gitops" {
+      capabilities = ["update"]
+    }

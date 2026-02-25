@@ -1,0 +1,52 @@
+# Transit secrets engine
+---
+path: sys/mounts/transit
+data:
+  type: transit
+  description: Transit encryption
+---
+path: transit/keys/my-rsa-key
+dependencies:
+  - sys/mounts/transit
+data:
+  type: rsa-4096
+---
+path: transit/keys/my-rsa-key/config
+dependencies:
+  - transit/keys/my-rsa-key
+data:
+  auto_rotate_period: 2d
+  deletion_allowed: true
+---
+path: transit/keys/my-aes-key
+dependencies:
+  - sys/mounts/transit
+data:
+  type: aes256-gcm96
+
+# PKI
+---
+path: sys/mounts/pki
+data:
+  type: pki
+  description: PKI secrets engine
+---
+path: pki/root/generate/internal
+dependencies:
+  - sys/mounts/pki
+data:
+  common_name: Example Root CA
+  ttl: 87600h
+  key_type: rsa
+  key_bits: 4096
+---
+path: pki/roles/code-signing
+data:
+  code_signing_flag: true
+  key_usage:
+    - DigitalSignature
+  ext_key_usage:
+    - CodeSigning
+  allow_any_name: true
+  ttl: 72h
+  max_ttl: 720h

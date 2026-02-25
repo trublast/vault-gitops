@@ -1,0 +1,32 @@
+# Database
+---
+path: sys/mounts/database
+data:
+  type: database
+  description: Database secrets engine
+---
+path: database/config/postgres
+dependencies:
+  - sys/mounts/database
+data:
+  plugin_name: postgresql-database-plugin
+  connection_url: postgresql://{{username}}:{{password}}@postgres.example.com:5432/postgres?sslmode=disable
+  username: vault
+  password: secret
+  allowed_roles:
+    - app
+  verify_connection: false
+---
+path: database/roles/app
+dependencies:
+  - database/config/postgres
+data:
+  db_name: postgres
+  creation_statements:
+    - CREATE ROLE "{{name}}" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';
+    - GRANT SELECT ON ALL TABLES IN SCHEMA public TO "{{name}}";
+  revocation_statements:
+    - REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM "{{name}}";
+    - DROP ROLE IF EXISTS "{{name}}";
+  default_ttl: 1h
+  max_ttl: 1h

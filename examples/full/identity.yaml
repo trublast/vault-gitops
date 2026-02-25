@@ -1,0 +1,13 @@
+# Identity
+---
+path: identity/entity/name/my-entity
+data:
+  policies:
+    - mypolicy
+---
+path: identity/group/name/my-group
+data:
+  type: internal
+  policies:
+    - mypolicy
+

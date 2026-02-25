@@ -1,0 +1,158 @@
+# Auth: Approle
+---
+path: sys/auth/approle
+data:
+  type: approle
+  description: Approle auth method
+---
+path: auth/approle/role/app
+dependencies:
+  - sys/auth/approle
+data:
+  policies:
+    - mypolicy
+  secret_id_ttl: 1h
+  secret_id_num_uses: 10
+---
+path: auth/approle/role/app/secret-id
+dependencies:
+  - auth/approle/role/app
+data: {}
+
+# save secret-id into KV v2
+---
+path: sys/mounts/my-secrets
+data:
+  type: kv
+  description: KV secrets engine version 2
+  options:
+    version: "2"
+---
+path: my-secrets/data/my-data
+dependencies:
+  - sys/mounts/my-secrets
+  - auth/approle/role/app/secret-id
+data:
+  data:
+    secret_id: <auth/approle/role/app/secret-id:secret_id>
+
+# Auth: JWT (and role)
+---
+path: sys/auth/jwt
+data:
+  type: jwt
+  description: JWT auth method
+---
+path: auth/jwt/config
+dependencies:
+  - sys/auth/jwt
+ignore_failures: true
+data:
+  oidc_discovery_url: https://example.com/.well-known/openid-configuration
+  default_role: my-jwt-role
+---
+path: auth/jwt/role/my-jwt-role
+dependencies:
+  - auth/jwt/config
+ignore_failures: true
+data:
+  role_type: jwt
+  token_policies:
+    - mypolicy
+  bound_audiences:
+    - my-audience
+  user_claim: sub
+  allowed_redirect_uris:
+    - http://localhost:8200/ui/vault/auth/jwt/callback
+
+# Auth: OIDC (and role; same backend as JWT in some setups, or separate mount)
+---
+path: sys/auth/oidc
+data:
+  type: oidc
+  description: OIDC auth method
+---
+path: auth/oidc/role/my-oidc-role
+dependencies:
+  - sys/auth/oidc
+ignore_failures: true
+data:
+  role_type: oidc
+  token_policies:
+    - mypolicy
+  allowed_redirect_uris:
+    - http://localhost:8200/ui/vault/auth/oidc/callback
+
+# Auth: userpass (and user)
+---
+path: sys/policies/password/example-policy/generate
+method: GET
+name: userpass-password
+dependencies:
+  - sys/policies/password/example-policy
+data: {}
+---
+path: sys/auth/userpass
+data:
+  type: userpass
+  description: Username and password auth
+---
+path: auth/userpass/users/e2e-user
+dependencies:
+  - sys/auth/userpass
+  - userpass-password
+data:
+  password: <userpass-password:password>
+  token_policies:
+    - mypolicy
+
+# Auth: Kubernetes (and role)
+---
+path: sys/auth/kubernetes
+data:
+  type: kubernetes
+  description: Kubernetes auth method
+---
+path: auth/kubernetes/config
+dependencies:
+  - sys/auth/kubernetes
+ignore_failures: true
+data:
+  kubernetes_host: https://kubernetes.default.svc:443
+---
+path: auth/kubernetes/role/my-k8s-role
+dependencies:
+  - auth/kubernetes/config
+ignore_failures: true
+data:
+  bound_service_account_namespaces:
+    - "*"
+  token_policies:
+    - mypolicy
+
+# Auth: LDAP (config and user)
+---
+path: sys/auth/ldap
+data:
+  type: ldap
+  description: LDAP auth method
+---
+path: auth/ldap/config
+dependencies:
+  - sys/auth/ldap
+ignore_failures: true
+data:
+  url: ldap://ldap.example.com
+  userdn: ou=People,dc=example,dc=com
+  binddn: cn=admin,dc=example,dc=com
+  bindpass: secret
+  groupdn: ou=Groups,dc=example,dc=com
+  insecure_tls: true
+---
+path: auth/ldap/users/ldap-user
+dependencies:
+  - auth/ldap/config
+ignore_failures: true
+data:
+  policies:
+    - mypolicy

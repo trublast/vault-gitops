@@ -1,0 +1,18 @@
+# Namespace
+# ---
+# path: sys/namespaces/ns1
+# data: {}
+# ---
+# path: sys/namespaces/team
+# namespace: ns1/
+# dependencies:
+#   - sys/namespaces/ns1
+# data: {}
+# ---
+# path: identity/entity/name/my-entity
+# namespace: ns1/
+# dependencies:
+#   - sys/namespaces/ns1
+# data:
+#   policies:
+#     - mypolicy
