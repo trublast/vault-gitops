@@ -61,9 +61,9 @@ checksum:
   name_template: 'SHA256SUMS'
   algorithm: sha256
 
-signs:
-  - id: sha256
-    artifacts: checksum
+# signs:
+#   - id: sha256
+#     artifacts: checksum
 
 sboms:
   - artifacts: binary
