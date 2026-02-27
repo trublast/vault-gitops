@@ -2,6 +2,8 @@ package terraform
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -27,6 +29,7 @@ type CLIConfig struct {
 	VaultNamespace string
 	TfPath         string
 	TfBinary       string
+	TfBinarySHA256 string
 	Storage        logical.Storage
 	Logger         hclog.Logger
 }
@@ -181,7 +184,10 @@ func setupTerraformConfigFile(workDir string, cmd *exec.Cmd) {
 
 // runTerraformInit runs terraform init
 func runTerraformInit(ctx context.Context, workDir string, config CLIConfig) error {
-	tfBinary := getTfBinary(config)
+	tfBinary, err := getTfBinary(config)
+	if err != nil {
+		return err
+	}
 	cmd := exec.CommandContext(ctx, tfBinary, "init", "-no-color", "-input=false")
 	cmd.Dir = workDir
 	cmd.Stdout = io.Discard
@@ -213,7 +219,10 @@ func runTerraformInit(ctx context.Context, workDir string, config CLIConfig) err
 
 // runTerraformPlan runs terraform plan
 func runTerraformPlan(ctx context.Context, workDir string, config CLIConfig) error {
-	tfBinary := getTfBinary(config)
+	tfBinary, err := getTfBinary(config)
+	if err != nil {
+		return err
+	}
 	cmd := exec.CommandContext(ctx, tfBinary, "plan", "-no-color", "-input=false", "-out=tfplan")
 	cmd.Dir = workDir
 	cmd.Stdout = io.Discard
@@ -255,7 +264,10 @@ func runTerraformPlan(ctx context.Context, workDir string, config CLIConfig) err
 // runTerraformApply runs terraform apply with the plan file and returns the state
 // State is returned even if apply failed, so it can be saved for debugging/recovery
 func runTerraformApply(ctx context.Context, workDir string, config CLIConfig) error {
-	tfBinary := getTfBinary(config)
+	tfBinary, err := getTfBinary(config)
+	if err != nil {
+		return err
+	}
 	cmd := exec.CommandContext(ctx, tfBinary, "apply", "-no-color", "-input=false", "-auto-approve", "tfplan")
 	cmd.Dir = workDir
 	cmd.Stdout = io.Discard
@@ -345,61 +357,69 @@ func saveTerraformState(ctx context.Context, state []byte, config CLIConfig) err
 	return nil
 }
 
-// getTfBinary returns the terraform binary path from config, or "terraform" as default
-func getTfBinary(config CLIConfig) string {
-	if config.TfBinary != "" {
-		return config.TfBinary
-	}
-	return "terraform"
-}
-
-// validateTfBinary validates that the terraform binary exists and is executable
-func validateTfBinary(tfBinary string) error {
+// ResolveAndValidateTfBinary resolves the terraform binary path, validates that it exists,
+// is a regular file with execute permission, and optionally matches the expected SHA256.
+// Empty tfBinary is treated as "terraform". Returns the absolute path to the binary or an error.
+func ResolveAndValidateTfBinary(tfBinary, expectedSHA256 string) (string, error) {
 	if tfBinary == "" {
-		return fmt.Errorf("terraform binary path cannot be empty")
+		tfBinary = "terraform"
 	}
 
-	// Check if it's an absolute path
+	var path string
 	if filepath.IsAbs(tfBinary) {
-		// Check if file exists
-		fileInfo, err := os.Stat(tfBinary)
+		path = tfBinary
+	} else {
+		var err error
+		path, err = exec.LookPath(tfBinary)
 		if err != nil {
-			if os.IsNotExist(err) {
-				return fmt.Errorf("terraform binary not found at path %q", tfBinary)
-			}
-			return fmt.Errorf("unable to access terraform binary at %q: %w", tfBinary, err)
+			return "", fmt.Errorf("terraform binary %q not found in PATH", tfBinary)
 		}
-
-		// Check if it's a regular file (not a directory)
-		if fileInfo.IsDir() {
-			return fmt.Errorf("terraform binary path %q is a directory, not a file", tfBinary)
-		}
-
-		// Check if file is executable
-		mode := fileInfo.Mode()
-		if mode&0111 == 0 {
-			return fmt.Errorf("terraform binary at %q does not have execute permissions", tfBinary)
-		}
-
-		return nil
 	}
 
-	// If it's not an absolute path, check if it exists in PATH
-	path, err := exec.LookPath(tfBinary)
-	if err != nil {
-		return fmt.Errorf("terraform binary %q not found in PATH", tfBinary)
-	}
-
-	// Verify the found binary is executable
 	fileInfo, err := os.Stat(path)
 	if err != nil {
-		return fmt.Errorf("unable to access terraform binary at %q: %w", path, err)
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("terraform binary not found at path %q", path)
+		}
+		return "", fmt.Errorf("unable to access terraform binary at %q: %w", path, err)
 	}
-
-	mode := fileInfo.Mode()
-	if mode&0111 == 0 {
-		return fmt.Errorf("terraform binary at %q (found in PATH) does not have execute permissions", path)
+	if fileInfo.IsDir() {
+		return "", fmt.Errorf("terraform binary path %q is a directory, not a file", path)
 	}
+	if fileInfo.Mode()&0111 == 0 {
+		return "", fmt.Errorf("terraform binary at %q does not have execute permissions", path)
+	}
+	if expectedSHA256 != "" {
+		if err := verifyTfBinarySHA256(path, expectedSHA256); err != nil {
+			return "", err
+		}
+	}
+	return path, nil
+}
 
+// verifyTfBinarySHA256 computes SHA256 of the file at path and compares it to expectedHex (trimmed, case-insensitive).
+func verifyTfBinarySHA256(path, expectedHex string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("reading terraform binary for checksum: %w", err)
+	}
+	defer f.Close()
+	h := sha256.New()
+	buf := make([]byte, 1<<20) // 1 MiB
+	if _, err := io.CopyBuffer(h, f, buf); err != nil {
+		return fmt.Errorf("reading terraform binary for checksum: %w", err)
+	}
+	got := hex.EncodeToString(h.Sum(nil))
+	expected := strings.ToLower(strings.TrimSpace(expectedHex))
+	if strings.HasPrefix(expected, "0x") {
+		expected = expected[2:]
+	}
+	if got != expected {
+		return fmt.Errorf("terraform binary SHA256 mismatch at %q: got %s, expected %s", path, got, expectedHex)
+	}
 	return nil
+}
+
+func getTfBinary(config CLIConfig) (string, error) {
+	return ResolveAndValidateTfBinary(config.TfBinary, config.TfBinarySHA256)
 }

@@ -59,6 +59,7 @@ func (b *backend) processCommitTerraform(ctx context.Context, storage logical.St
 		VaultNamespace: vaultConfig.VaultNamespace,
 		TfPath:         tfConfig.TfPath,
 		TfBinary:       tfConfig.TfBinary,
+		TfBinarySHA256: tfConfig.TfBinarySHA256,
 		Storage:        storage,
 		Logger:         b.Logger(),
 	}

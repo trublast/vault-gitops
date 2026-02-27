@@ -13,15 +13,17 @@ import (
 )
 
 const (
-	FieldNameTfPath   = "terraform_path"
-	FieldNameTfBinary = "terraform_binary"
+	FieldNameTfPath         = "terraform_path"
+	FieldNameTfBinary       = "terraform_binary"
+	FieldNameTfBinarySHA256 = "terraform_binary_sha256"
 
 	StorageKeyConfiguration = "terraform_configuration"
 )
 
 type Configuration struct {
-	TfPath   string `structs:"terraform_path" json:"terraform_path,omitempty"`
-	TfBinary string `structs:"terraform_binary" json:"terraform_binary,omitempty"`
+	TfPath         string `structs:"terraform_path" json:"terraform_path,omitempty"`
+	TfBinary       string `structs:"terraform_binary" json:"terraform_binary,omitempty"`
+	TfBinarySHA256 string `structs:"terraform_binary_sha256" json:"terraform_binary_sha256,omitempty"`
 }
 
 type backend struct {
@@ -52,6 +54,11 @@ func Paths(baseBackend *framework.Backend) []*framework.Path {
 					Type:        framework.TypeString,
 					Default:     "terraform",
 					Description: "Full path to Terraform binary. Default is terraform.",
+					Required:    false,
+				},
+				FieldNameTfBinarySHA256: {
+					Type:        framework.TypeString,
+					Description: "Optional SHA256 checksum of the Terraform binary. If set, the binary is verified against this checksum at configuration time and before each run.",
 					Required:    false,
 				},
 			},
@@ -125,9 +132,13 @@ func (b *backend) pathConfigureCreateOrUpdate(ctx context.Context, req *logical.
 		config.TfBinary = tfBinary.(string)
 	}
 
+	if tfBinarySHA256, ok := fields.GetOk(FieldNameTfBinarySHA256); ok {
+		config.TfBinarySHA256 = strings.TrimSpace(tfBinarySHA256.(string))
+	}
+
 	// Validate TfBinary if it was provided or set
 	if config.TfBinary != "" {
-		if err := validateTfBinary(config.TfBinary); err != nil {
+		if _, err := ResolveAndValidateTfBinary(config.TfBinary, config.TfBinarySHA256); err != nil {
 			return logical.ErrorResponse("%q field is invalid: %s", FieldNameTfBinary, err), nil
 		}
 	}
@@ -215,11 +226,11 @@ func GetConfig(ctx context.Context, storage logical.Storage) (*Configuration, er
 
 const (
 	configureHelpSyn = `
-Terraform configuration of the gitops_terraform backend.
+Terraform configuration of the gitops backend.
 `
 	configureHelpDesc = `
 The terraform configuration is used to specify the path to Terraform files within the git repository.
 
-This is terraform configuration for the gitops_terraform plugin.
+This is terraform configuration for the gitops plugin.
 `
 )
