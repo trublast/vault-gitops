@@ -1,16 +1,22 @@
 BINARY_NAME := gitops
 TOOL_BINARY  := gitops-tool
 VAULT_BINARY := vault
+# Version for -X ldflag (empty if not in git / no tag)
+VERSION      := $(shell git describe --tags --always --dirty 2>/dev/null || true)
+LDFLAGS      := -s -w
+ifneq ($(VERSION),)
+LDFLAGS      += -X github.com/trublast/vault-plugin-gitops.projectVersion=$(VERSION)
+endif
 
 .PHONY: all build build-tool clean test e2e
 
 all: build build-tool
 
 build:
-	go build -ldflags '-s -w' -o $(BINARY_NAME) ./cmd/plugin-gitops
+	go build -ldflags '$(LDFLAGS)' -o $(BINARY_NAME) ./cmd/plugin-gitops
 
 build-tool:
-	go build -ldflags '-s -w' -o $(TOOL_BINARY) ./cmd/tool
+	go build -ldflags '$(LDFLAGS)' -o $(TOOL_BINARY) ./cmd/tool
 
 clean:
 	rm -f $(BINARY_NAME) $(TOOL_BINARY)

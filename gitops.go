@@ -12,24 +12,68 @@ import (
 	trdlGit "github.com/trublast/vault-plugin-gitops/pkg/git"
 	"github.com/trublast/vault-plugin-gitops/pkg/git_repository"
 	"github.com/trublast/vault-plugin-gitops/pkg/gitops"
+	"github.com/trublast/vault-plugin-gitops/pkg/terraform"
 	"github.com/trublast/vault-plugin-gitops/pkg/util"
 	"github.com/trublast/vault-plugin-gitops/pkg/vault_client"
 )
 
-// processCommit applies declarative YAML from the repo at the given commit.
+// processCommit applies repo at the given commit
 func (b *backend) processCommit(ctx context.Context, storage logical.Storage, hashCommit string) error {
-	b.Logger().Debug(fmt.Sprintf("Processing commit: %q", hashCommit))
+	b.Logger().Debug(fmt.Sprintf("Processing commit: %q (mode: %s)", hashCommit, b.engineMode))
 
-	config, err := git_repository.GetConfig(ctx, storage, b.Logger())
+	repoConfig, err := git_repository.GetConfig(ctx, storage, b.Logger())
 	if err != nil {
 		return fmt.Errorf("unable to get git repository configuration: %w", err)
 	}
 
+	gitRepo, err := b.cloneRepositoryAtCommit(ctx, storage, repoConfig, hashCommit)
+	if err != nil {
+		return fmt.Errorf("unable to clone repository at commit %q: %w", hashCommit, err)
+	}
+	defer func() { gitRepo = nil }()
+
+	switch b.engineMode {
+	case EngineModeTerraform:
+		return b.processCommitTerraform(ctx, storage, gitRepo)
+	default:
+		return b.processCommitGitOps(ctx, storage, gitRepo)
+	}
+}
+
+// processCommitTerraform runs Terraform from the cloned repo.
+func (b *backend) processCommitTerraform(ctx context.Context, storage logical.Storage, gitRepo *git.Repository) error {
 	vaultConfig, err := vault_client.GetConfig(ctx, storage)
 	if err != nil {
 		return fmt.Errorf("unable to get vault configuration: %w", err)
 	}
+	if vaultConfig == nil || vaultConfig.VaultToken == "" {
+		return fmt.Errorf("vault configuration is required for terraform mode (configure vault token)")
+	}
+	tfConfig, err := terraform.GetConfig(ctx, storage)
+	if err != nil {
+		return fmt.Errorf("unable to get terraform configuration: %w", err)
+	}
+	terraformConfig := terraform.CLIConfig{
+		VaultAddr:      vaultConfig.VaultAddr,
+		VaultToken:     vaultConfig.VaultToken,
+		VaultNamespace: vaultConfig.VaultNamespace,
+		TfPath:         tfConfig.TfPath,
+		TfBinary:       tfConfig.TfBinary,
+		Storage:        storage,
+		Logger:         b.Logger(),
+	}
+	if err := terraform.ApplyTerraformFromRepo(ctx, gitRepo, terraformConfig); err != nil {
+		return fmt.Errorf("terraform apply: %w", err)
+	}
+	return nil
+}
 
+// processCommitGitOps loads YAML from the cloned repo and applies to Vault API.
+func (b *backend) processCommitGitOps(ctx context.Context, storage logical.Storage, gitRepo *git.Repository) error {
+	vaultConfig, err := vault_client.GetConfig(ctx, storage)
+	if err != nil {
+		return fmt.Errorf("unable to get vault configuration: %w", err)
+	}
 	gitopsConfig, err := gitops.GetConfig(ctx, storage)
 	if err != nil {
 		return fmt.Errorf("unable to get gitops configuration: %w", err)
@@ -39,17 +83,10 @@ func (b *backend) processCommit(ctx context.Context, storage logical.Storage, ha
 		rootPath = gitopsConfig.Path
 	}
 
-	gitRepo, err := b.cloneRepositoryAtCommit(ctx, storage, config, hashCommit)
-	if err != nil {
-		return fmt.Errorf("unable to clone repository at commit %q: %w", hashCommit, err)
-	}
-	defer func() { gitRepo = nil }()
-
 	resources, err := gitops.LoadResourcesFromRepo(gitRepo, rootPath)
 	if err != nil {
 		return fmt.Errorf("unable to load resources from repo: %w", err)
 	}
-
 	if err := gitops.Lint(resources); err != nil {
 		return fmt.Errorf("lint: %w", err)
 	}
@@ -66,11 +103,10 @@ func (b *backend) processCommit(ctx context.Context, storage logical.Storage, ha
 	if err != nil {
 		return fmt.Errorf("vault client: %w", err)
 	}
-	writer := &storageStateWriter{storage: storage}
+	writer := gitops.NewStorageStateWriter(storage)
 	if err := gitops.Apply(ctx, resources, vaultClient, &state, writer); err != nil {
 		return fmt.Errorf("gitops apply: %w", err)
 	}
-
 	return nil
 }
 

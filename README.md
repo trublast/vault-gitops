@@ -6,7 +6,7 @@
 
 The plugin monitors a git repository for new commits. When new commits are found that are signed with the required number of signatures, it applies the configuration.
 
-- Configuration is described in YAML format.
+- Configuration is described in YAML or Terraform format.
 - State is stored in Vault.
 - Vault connection uses the address and token specified in the plugin configuration.
 - Currently requires a renewable periodic token that will be automatically renewed 24 hours before expiration.
@@ -55,6 +55,12 @@ Test loads resources, runs lint, then performs the same POST (and optional DELET
 SHA=$(sha256sum $PWD/gitops | awk '{print $1;}')
 vault plugin register -command gitops -sha256 $SHA -version=v0.0.1 secret gitops
 vault secrets enable gitops
+```
+
+Terraform mode
+
+```bash
+vault secrets enable -type=terraform gitops 
 ```
 
 ## Configuration

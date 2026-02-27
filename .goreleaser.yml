@@ -21,7 +21,8 @@ builds:
       - -s
       - -w
       - -extldflags -static
-      - -X {{.ModulePath}}/github.projectVersion=v{{.Version}}
+      # package plugin_gitops is in repo root, so import path = ModulePath
+      - -X {{.ModulePath}}.projectVersion=v{{.Version}}
     binary: "gitops-{{ .Os }}-{{ .Arch }}"
 
   # CLI tool (cmd/tool)

@@ -12,8 +12,15 @@ import (
 	"github.com/trublast/vault-plugin-gitops/pkg/git_repository"
 	"github.com/trublast/vault-plugin-gitops/pkg/gitops"
 	"github.com/trublast/vault-plugin-gitops/pkg/pgp"
+	"github.com/trublast/vault-plugin-gitops/pkg/terraform"
 	"github.com/trublast/vault-plugin-gitops/pkg/util"
 	"github.com/trublast/vault-plugin-gitops/pkg/vault_client"
+)
+
+// Engine mode: set via mount option type=gitops|terraform (default gitops).
+const (
+	EngineModeGitOps    = "gitops"
+	EngineModeTerraform = "terraform"
 )
 
 // Linker-provided project/build information.
@@ -21,6 +28,9 @@ var projectVersion string
 
 type backend struct {
 	*framework.Backend
+
+	// engineMode is set from mount option "type" (gitops or terraform), default gitops
+	engineMode string
 
 	// Vault token expire time stored in memory (not in storage)
 	vaultTokenTTL         *vault_client.TokenTTL
@@ -50,7 +60,20 @@ func Factory(ctx context.Context, conf *logical.BackendConfig) (logical.Backend,
 }
 
 func newBackend(c *logical.BackendConfig) (*backend, error) {
+	engineMode := EngineModeGitOps
+	if c != nil && c.Config != nil {
+		if t := c.Config["type"]; t != "" {
+			engineMode = t
+		}
+	}
+	switch engineMode {
+	case EngineModeGitOps, EngineModeTerraform:
+	default:
+		return nil, fmt.Errorf("invalid mount option type=%q, must be %q or %q", engineMode, EngineModeGitOps, EngineModeTerraform)
+	}
+
 	b := &backend{
+		engineMode:         engineMode,
 		processGitCASGuard: new(uint32),
 	}
 
@@ -73,7 +96,6 @@ func newBackend(c *logical.BackendConfig) (*backend, error) {
 	baseBackend.Paths = framework.PathAppend(
 		git_repository.Paths(baseBackend),
 		vault_client.Paths(baseBackend),
-		gitops.Paths(baseBackend),
 		git.CredentialsPaths(),
 		pgp.Paths(),
 		[]*framework.Path{
@@ -88,6 +110,12 @@ func newBackend(c *logical.BackendConfig) (*backend, error) {
 			},
 		},
 	)
+	switch engineMode {
+	case EngineModeGitOps:
+		baseBackend.Paths = framework.PathAppend(baseBackend.Paths, gitops.Paths(baseBackend))
+	case EngineModeTerraform:
+		baseBackend.Paths = framework.PathAppend(baseBackend.Paths, terraform.Paths(baseBackend))
+	}
 
 	b.Backend = baseBackend
 
@@ -156,10 +184,12 @@ func (b *backend) initializeVaultTokenTTL(ctx context.Context, storage logical.S
 
 // checkAndUpdateVaultTokenExpireTime checks if expire time needs to be updated and renews token if needed
 func (b *backend) checkAndUpdateVaultTokenExpireTime(ctx context.Context, storage logical.Storage) error {
-	// Get vault configuration
 	vaultConfig, err := vault_client.GetConfig(ctx, storage)
 	if err != nil {
-		return fmt.Errorf("unable to get valid vault configuration: %w", err)
+		return fmt.Errorf("unable to get vault configuration: %w", err)
+	}
+	if vaultConfig == nil || vaultConfig.VaultToken == "" {
+		return nil
 	}
 
 	// Get current expire time from backend
