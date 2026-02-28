@@ -250,6 +250,8 @@ func (b *backend) getVaultTokenTTL() *vault_client.TokenTTL {
 
 const (
 	backendHelp = `
-The gitops plugin starts an operator which waits for new commits in the configured git repository, verifies commit signatures by configured pgp keys, then executes configured commands in this new commit.
+The gitops plugin starts an operator which waits for new commits in the
+configured git repository, verifies commit signatures by configured pgp keys,
+then executes configured commands in this new commit.
 `
 )

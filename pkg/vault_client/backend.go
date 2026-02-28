@@ -515,8 +515,7 @@ const (
 Vault client configuration of the gitops backend.
 `
 	configureHelpDesc = `
-The vault client configuration is used to connect to Vault API for applying policies.
-
-This is vault client configuration for the gitops plugin.
+The vault client configuration is used to connect to Vault API
+for applying Vault configuration.
 `
 )
