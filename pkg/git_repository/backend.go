@@ -18,6 +18,7 @@ const (
 	FieldNameGitBranch                                  = "git_branch_name"
 	FieldNameGitPollPeriod                              = "git_poll_period"
 	FieldNameRequiredNumberOfVerifiedSignaturesOnCommit = "required_number_of_verified_signatures_on_commit"
+	FieldNameMaxCloneSizeBytes                          = "max_clone_size_bytes"
 
 	StorageKeyConfiguration = "git_repository_configuration"
 )
@@ -28,6 +29,7 @@ type Configuration struct {
 	GitBranch                                  string        `structs:"git_branch_name" json:"git_branch_name"`
 	GitPollPeriod                              time.Duration `structs:"git_poll_period" json:"git_poll_period"`
 	RequiredNumberOfVerifiedSignaturesOnCommit int           `structs:"required_number_of_verified_signatures_on_commit" json:"required_number_of_verified_signatures_on_commit"`
+	MaxCloneSizeBytes                          int64         `structs:"max_clone_size_bytes" json:"max_clone_size_bytes,omitempty"`
 }
 
 type backend struct {
@@ -70,6 +72,11 @@ func Paths(baseBackend *framework.Backend) []*framework.Path {
 					Type:        framework.TypeInt,
 					Default:     0,
 					Description: "Verify that the commit has enough verified signatures",
+				},
+				FieldNameMaxCloneSizeBytes: {
+					Type:        framework.TypeInt,
+					Default:     10 * 1024 * 1024, // 10MB
+					Description: "Max size (bytes) of in-memory clone; clone fails when exceeded (0 = no limit). Protects against OOM on large or malicious repos.",
 				},
 			},
 
@@ -145,6 +152,12 @@ func (b *backend) pathConfigureCreateOrUpdate(ctx context.Context, req *logical.
 
 	if requiredSignatures, ok := fields.GetOk(FieldNameRequiredNumberOfVerifiedSignaturesOnCommit); ok {
 		config.RequiredNumberOfVerifiedSignaturesOnCommit = requiredSignatures.(int)
+	}
+
+	if maxCloneSize, ok := fields.GetOk(FieldNameMaxCloneSizeBytes); ok {
+		if v, ok := maxCloneSize.(int); ok && v >= 0 {
+			config.MaxCloneSizeBytes = int64(v)
+		}
 	}
 
 	// Validate GitRepoUrl for CREATE operation

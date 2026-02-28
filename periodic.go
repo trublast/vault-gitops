@@ -110,8 +110,15 @@ func (b *backend) processGit(ctx context.Context, storage logical.Storage, lastF
 		}
 	}
 
-	// Find first signed commit from HEAD backwards to lastFinishedCommit
-	commitInfo, err := git_repository.GitService(ctx, storage, b.Logger()).FindFirstSignedCommitFromHead(lastFinishedCommitInfo)
+	// Clone once; find first signed commit in the same repo, then process it
+	gitSvc := git_repository.GitService(ctx, storage, b.Logger())
+	gitRepo, _, err := gitSvc.Clone()
+	if err != nil {
+		storeProcessStatusCommit(ctx, storage, fmt.Sprintf("FAILED check git repo: %s", err.Error()))
+		return fmt.Errorf("cloning repository: %w", err)
+	}
+
+	commitInfo, err := gitSvc.FindFirstSignedCommitFromRepo(gitRepo, lastFinishedCommitInfo)
 	if err != nil {
 		storeProcessStatusCommit(ctx, storage, fmt.Sprintf("FAILED check git repo: %s", err.Error()))
 		return fmt.Errorf("finding signed commit: %w", err)
@@ -130,7 +137,7 @@ func (b *backend) processGit(ctx context.Context, storage logical.Storage, lastF
 
 	storeProcessStatusCommit(ctx, storage, fmt.Sprintf("Processing commit %q", commitInfo.CommitHash))
 
-	err = b.processCommit(ctx, storage, commitInfo.CommitHash)
+	err = b.processCommitWithRepo(ctx, storage, gitRepo, commitInfo.CommitHash)
 	if err != nil {
 		storeProcessStatusCommit(ctx, storage, fmt.Sprintf("FAILED processing commit %q: %s", commitInfo.CommitHash, err.Error()))
 		return fmt.Errorf("processing commit %q: %w", commitInfo.CommitHash, err)

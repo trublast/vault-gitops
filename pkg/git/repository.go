@@ -2,18 +2,24 @@ package git
 
 import (
 	"archive/tar"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-git/go-billy/v5/memfs"
 	git "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport"
+	"github.com/go-git/go-git/v5/storage"
 	"github.com/go-git/go-git/v5/storage/memory"
 )
+
+// ErrCloneSizeLimitExceeded is returned when the repository size exceeds MaxCloneSizeBytes during in-memory clone.
+var ErrCloneSizeLimitExceeded = errors.New("clone size limit exceeded")
 
 type CloneOptions struct {
 	TagName           string
@@ -22,10 +28,41 @@ type CloneOptions struct {
 	RecurseSubmodules git.SubmoduleRescursivity
 	Auth              transport.AuthMethod
 	CABundle          []byte
+	// MaxCloneSizeBytes limits total size of objects stored during in-memory clone (0 = no limit).
+	// When exceeded, clone fails with ErrCloneSizeLimitExceeded. Use to prevent OOM on large or malicious repos.
+	MaxCloneSizeBytes int64
+}
+
+// limitedStorage wraps memory.Storage and fails writes when total size exceeds limit.
+type limitedStorage struct {
+	*memory.Storage
+	limit int64
+	used  atomic.Int64
+}
+
+func (s *limitedStorage) SetEncodedObject(obj plumbing.EncodedObject) (plumbing.Hash, error) {
+	size := obj.Size()
+	if size < 0 {
+		size = 0
+	}
+	newUsed := s.used.Add(size)
+	if s.limit > 0 && newUsed > s.limit {
+		s.used.Add(-size)
+		return plumbing.ZeroHash, fmt.Errorf("%w: limit %d bytes", ErrCloneSizeLimitExceeded, s.limit)
+	}
+	return s.Storage.SetEncodedObject(obj)
 }
 
 func CloneInMemory(url string, opts CloneOptions) (*git.Repository, error) {
-	storage := memory.NewStorage()
+	var storer storage.Storer
+	if opts.MaxCloneSizeBytes > 0 {
+		storer = &limitedStorage{
+			Storage: memory.NewStorage(),
+			limit:   opts.MaxCloneSizeBytes,
+		}
+	} else {
+		storer = memory.NewStorage()
+	}
 	fs := memfs.New()
 
 	cloneOptions := &git.CloneOptions{}
@@ -54,7 +91,7 @@ func CloneInMemory(url string, opts CloneOptions) (*git.Repository, error) {
 		}
 	}
 
-	return git.Clone(storage, fs, cloneOptions)
+	return git.Clone(storer, fs, cloneOptions)
 }
 
 func AddWorktreeFilesToTar(tw *tar.Writer, gitRepo *git.Repository) error {

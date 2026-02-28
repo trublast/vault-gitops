@@ -6,38 +6,44 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
-	gitHTTP "github.com/go-git/go-git/v5/plumbing/transport/http"
 	"github.com/hashicorp/vault/sdk/logical"
 
-	trdlGit "github.com/trublast/vault-plugin-gitops/pkg/git"
-	"github.com/trublast/vault-plugin-gitops/pkg/git_repository"
 	"github.com/trublast/vault-plugin-gitops/pkg/gitops"
 	"github.com/trublast/vault-plugin-gitops/pkg/terraform"
 	"github.com/trublast/vault-plugin-gitops/pkg/util"
 	"github.com/trublast/vault-plugin-gitops/pkg/vault_client"
 )
 
-// processCommit applies repo at the given commit
-func (b *backend) processCommit(ctx context.Context, storage logical.Storage, hashCommit string) error {
-	b.Logger().Debug(fmt.Sprintf("Processing commit: %q (mode: %s)", hashCommit, b.engineMode))
-
-	repoConfig, err := git_repository.GetConfig(ctx, storage, b.Logger())
-	if err != nil {
-		return fmt.Errorf("unable to get git repository configuration: %w", err)
+// processCommitWithRepo checkouts the repository to the given commit and runs Terraform or GitOps.
+func (b *backend) processCommitWithRepo(ctx context.Context, storage logical.Storage, gitRepo *git.Repository, commitHash string) error {
+	if err := b.checkoutRepoToCommit(gitRepo, commitHash); err != nil {
+		return err
 	}
+	return b.processCommitWithRepoAtHead(ctx, storage, gitRepo)
+}
 
-	gitRepo, err := b.cloneRepositoryAtCommit(ctx, storage, repoConfig, hashCommit)
-	if err != nil {
-		return fmt.Errorf("unable to clone repository at commit %q: %w", hashCommit, err)
-	}
-	defer func() { gitRepo = nil }()
-
+// processCommitWithRepoAtHead runs Terraform or GitOps on the repo (worktree must already be at the desired commit).
+func (b *backend) processCommitWithRepoAtHead(ctx context.Context, storage logical.Storage, gitRepo *git.Repository) error {
 	switch b.engineMode {
 	case EngineModeTerraform:
 		return b.processCommitTerraform(ctx, storage, gitRepo)
 	default:
 		return b.processCommitGitOps(ctx, storage, gitRepo)
 	}
+}
+
+// checkoutRepoToCommit checkouts the repository worktree to the given commit.
+func (b *backend) checkoutRepoToCommit(gitRepo *git.Repository, commitHash string) error {
+	worktree, err := gitRepo.Worktree()
+	if err != nil {
+		return fmt.Errorf("getting worktree: %w", err)
+	}
+	commitHashObj := plumbing.NewHash(commitHash)
+	if err := worktree.Checkout(&git.CheckoutOptions{Hash: commitHashObj}); err != nil {
+		return fmt.Errorf("checking out commit %q: %w", commitHash, err)
+	}
+	b.Logger().Debug(fmt.Sprintf("Checked out to commit: %q", commitHash))
+	return nil
 }
 
 // processCommitTerraform runs Terraform from the cloned repo.
@@ -109,48 +115,4 @@ func (b *backend) processCommitGitOps(ctx context.Context, storage logical.Stora
 		return fmt.Errorf("gitops apply: %w", err)
 	}
 	return nil
-}
-
-// cloneRepositoryAtCommit clones repository and checks out to specific commit
-func (b *backend) cloneRepositoryAtCommit(ctx context.Context, storage logical.Storage, config *git_repository.Configuration, commitHash string) (*git.Repository, error) {
-	gitCredentials, err := trdlGit.GetGitCredential(ctx, storage)
-	if err != nil {
-		return nil, fmt.Errorf("unable to get Git credentials: %w", err)
-	}
-
-	var cloneOptions trdlGit.CloneOptions
-	{
-		cloneOptions.BranchName = config.GitBranch
-		if gitCredentials != nil && gitCredentials.Username != "" && gitCredentials.Password != "" {
-			cloneOptions.Auth = &gitHTTP.BasicAuth{
-				Username: gitCredentials.Username,
-				Password: gitCredentials.Password,
-			}
-		}
-		if config.GitCACertificate != "" {
-			cloneOptions.CABundle = []byte(config.GitCACertificate)
-		}
-	}
-
-	gitRepo, err := trdlGit.CloneInMemory(config.GitRepoUrl, cloneOptions)
-	if err != nil {
-		return nil, fmt.Errorf("cloning repository: %w", err)
-	}
-
-	// Checkout to specific commit
-	worktree, err := gitRepo.Worktree()
-	if err != nil {
-		return nil, fmt.Errorf("getting worktree: %w", err)
-	}
-
-	commitHashObj := plumbing.NewHash(commitHash)
-	err = worktree.Checkout(&git.CheckoutOptions{
-		Hash: commitHashObj,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("checking out commit %q: %w", commitHash, err)
-	}
-
-	b.Logger().Debug(fmt.Sprintf("Checked out to commit: %q", commitHash))
-	return gitRepo, nil
 }
