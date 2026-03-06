@@ -60,7 +60,7 @@ vault secrets enable gitops
 Режим для terraform
 
 ```bash
-vault secrets enable -type=terraform gitops 
+vault secrets enable -options=type=terraform gitops 
 ```
 
 ## Настройка
