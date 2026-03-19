@@ -44,6 +44,7 @@ builds:
       - -s
       - -w
       - -extldflags -static
+      - -X main.projectVersion=v{{.Version}}
     binary: "gitops-tool-{{ .Os }}-{{ .Arch }}"
 
 archives:

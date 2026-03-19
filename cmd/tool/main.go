@@ -17,6 +17,8 @@ type fileStateWriter struct {
 	filename string
 }
 
+var projectVersion string
+
 func (w fileStateWriter) SaveState(ctx context.Context, state *gitops.State) error {
 	if state == nil || w.filename == "" {
 		return nil
@@ -53,17 +55,21 @@ func main() {
 	}
 	cmd := strings.ToLower(os.Args[1])
 
-	if cmd == "lint" {
+	if cmd == "version" {
+		fmt.Printf("gitops-tool %s\n", projectVersion)
+		return
+	}
+
+	var err error
+
+	switch cmd {
+	case "lint":
 		if len(os.Args) != 3 {
 			printUsage()
 			os.Exit(1)
 		}
-		path := os.Args[2]
-		runLint(path)
-		return
-	}
-
-	if cmd == "test" {
+		err = runLint(os.Args[2])
+	case "test":
 		fs := flag.NewFlagSet("test", flag.ExitOnError)
 		stateFile := fs.String("state", "", "load and save state to file")
 		_ = fs.Parse(os.Args[2:])
@@ -72,61 +78,57 @@ func main() {
 			printUsage()
 			os.Exit(1)
 		}
-		runTest(path, *stateFile)
-		return
+		err = runTest(path, *stateFile)
+	default:
+
+		fmt.Fprintf(os.Stderr, "unknown command %q; use lint, test, or version\n", cmd)
+		printUsage()
+		os.Exit(1)
 	}
 
-	fmt.Fprintf(os.Stderr, "unknown command %q; use lint or test\n", cmd)
-	printUsage()
-	os.Exit(1)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s: %v\n", cmd, err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("\033[32m✔\033[0m %s passed\n", cmd)
 }
 
-func runLint(path string) {
+func runLint(path string) error {
 	resources, err := gitops.LoadResourcesFromPath(path)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "load: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("load: %w", err)
 	}
-	if err := gitops.Lint(resources); err != nil {
-		fmt.Fprintf(os.Stderr, "lint: %v\n", err)
-		os.Exit(1)
-	}
+	return gitops.Lint(resources)
 }
 
-func runTest(path, stateFile string) {
+func runTest(path, stateFile string) error {
 	resources, err := gitops.LoadResourcesFromPath(path)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "load: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("load: %w", err)
 	}
 	if err := gitops.Lint(resources); err != nil {
-		fmt.Fprintf(os.Stderr, "lint: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("lint: %w", err)
 	}
 
-	token := strings.TrimSpace(os.Getenv("VAULT_TOKEN"))
-	if token == "" {
-		fmt.Fprintln(os.Stderr, "test requires VAULT_TOKEN to be set")
-		os.Exit(1)
+	if strings.TrimSpace(os.Getenv("VAULT_TOKEN")) == "" {
+		return fmt.Errorf("VAULT_TOKEN is not set")
 	}
+
 	cfg := api.DefaultConfig()
 	if err := cfg.ReadEnvironment(); err != nil {
-		fmt.Fprintf(os.Stderr, "test (vault config): %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("vault config: %w", err)
 	}
 	vaultClient, err := api.NewClient(cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "test (vault client): %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("vault client: %w", err)
 	}
 
 	var state *gitops.State
 	if stateFile != "" {
-		var err error
 		state, err = loadStateFromFile(stateFile)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "test (load state): %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("load state: %w", err)
 		}
 	} else {
 		state = &gitops.State{Resources: make(map[string]gitops.StateResource)}
@@ -140,23 +142,24 @@ func runTest(path, stateFile string) {
 		writer = fileStateWriter{filename: stateFile}
 	}
 	if err := gitops.Apply(context.Background(), resources, vaultClient, state, writer); err != nil {
-		fmt.Fprintf(os.Stderr, "test (apply): %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("apply: %w", err)
 	}
 	if writer != nil {
 		if err := writer.SaveState(context.Background(), state); err != nil {
-			fmt.Fprintf(os.Stderr, "test (save state): %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("save state: %w", err)
 		}
 	}
+	return nil
 }
 
 func printUsage() {
 	fmt.Fprintln(os.Stderr, "usage: gitops-tool lint <path>")
 	fmt.Fprintln(os.Stderr, "       gitops-tool test [-state <file>] <path>")
+	fmt.Fprintln(os.Stderr, "       gitops-tool version")
 	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "  lint: validate declarative YAML (path, data, names, dependencies).")
-	fmt.Fprintln(os.Stderr, "  test: run apply against Vault; requires VAULT_ADDR and VAULT_TOKEN.")
-	fmt.Fprintln(os.Stderr, "        -state: optional file to load state from and save state to.")
-	fmt.Fprintln(os.Stderr, "  path: file (.yaml/.yml) or directory (recursively collects .yaml/.yml)")
+	fmt.Fprintln(os.Stderr, "  lint:    validate declarative YAML (path, data, names, dependencies).")
+	fmt.Fprintln(os.Stderr, "  test:    run apply against Vault; requires VAULT_ADDR and VAULT_TOKEN.")
+	fmt.Fprintln(os.Stderr, "           -state: optional file to load state from and save state to.")
+	fmt.Fprintln(os.Stderr, "  version: print version and exit.")
+	fmt.Fprintln(os.Stderr, "  path:    file (.yaml/.yml) or directory (recursively collects .yaml/.yml)")
 }
