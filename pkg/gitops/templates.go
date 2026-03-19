@@ -8,9 +8,6 @@ import (
 // ResolveTemplates replaces template strings <name:key> in data with values from state.
 func ResolveTemplates(data interface{}, state *State) (interface{}, error) {
 	switch x := data.(type) {
-	case map[interface{}]interface{}:
-		m := mapInterfaceKeysToStrings(x)
-		return resolveTemplatesMap(m, state)
 	case map[string]interface{}:
 		return resolveTemplatesMap(x, state)
 	case []interface{}:
@@ -20,15 +17,6 @@ func ResolveTemplates(data interface{}, state *State) (interface{}, error) {
 	default:
 		return data, nil
 	}
-}
-
-func mapInterfaceKeysToStrings(x map[interface{}]interface{}) map[string]interface{} {
-	m := make(map[string]interface{}, len(x))
-	for k, v := range x {
-		ks, _ := k.(string)
-		m[ks] = v
-	}
-	return m
 }
 
 func resolveTemplatesMap(m map[string]interface{}, state *State) (map[string]interface{}, error) {
@@ -93,8 +81,6 @@ func getResponseDataPath(rd interface{}, path string) (interface{}, bool) {
 		var ok bool
 		switch m := v.(type) {
 		case map[string]interface{}:
-			next, ok = m[seg]
-		case map[interface{}]interface{}:
 			next, ok = m[seg]
 		case []interface{}:
 			var i int

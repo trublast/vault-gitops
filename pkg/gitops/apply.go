@@ -48,12 +48,13 @@ func Apply(ctx context.Context, resources []Resource, client *api.Client, state 
 			continue
 		}
 		rev := revisionForDigest(r.Revision)
-		if prev, inState := state.Resources[key]; inState && prev.DataDigest == dataDigestWithRevision(resolvedData, rev) {
+		digest := dataDigestWithRevision(resolvedData, rev)
+		if prev, inState := state.Resources[key]; inState && prev.DataDigest == digest {
 			continue
 		}
 		// Maybe state exists under old key (hash) after user added name to resource.
 		if _, inState := state.Resources[key]; !inState {
-			if oldKey, prev, found := state.FindByNsPath(r.NamespaceOrDefault(), r.Path); found && prev.DataDigest == dataDigestWithRevision(resolvedData, rev) {
+			if oldKey, prev, found := state.FindByNsPath(r.NamespaceOrDefault(), r.Path); found && prev.DataDigest == digest {
 				state.Resources[key] = StateResource{
 					DataDigest:     prev.DataDigest,
 					Dependencies:   prev.Dependencies,
@@ -82,19 +83,12 @@ func Apply(ctx context.Context, resources []Resource, client *api.Client, state 
 		}
 		method := normalizeMethod(r.Method)
 
-		var responseData interface{}
+		var secret *api.Secret
 		var applyErr error
-		switch method {
-		case "GET":
-			secret, err := reqClient.Logical().ReadWithContext(ctx, path)
-			if err != nil {
-				applyErr = err
-				break
-			}
-			if secret != nil && secret.Data != nil {
-				responseData = normalizeValue(secret.Data)
-			}
-		default:
+
+		if method == "GET" {
+			secret, applyErr = reqClient.Logical().ReadWithContext(ctx, path)
+		} else {
 			dataMap, err := dataToDataMap(resolvedData)
 			if err != nil {
 				msg := fmt.Sprintf("resource %s%s: json encode: %v", r.Namespace, r.Path, err)
@@ -103,14 +97,7 @@ func Apply(ctx context.Context, resources []Resource, client *api.Client, state 
 				}
 				continue
 			}
-			secret, err := reqClient.Logical().WriteWithContext(ctx, path, dataMap)
-			if err != nil {
-				applyErr = err
-				break
-			}
-			if secret != nil && secret.Data != nil {
-				responseData = normalizeValue(secret.Data)
-			}
+			secret, applyErr = reqClient.Logical().WriteWithContext(ctx, path, dataMap)
 		}
 
 		if applyErr != nil {
@@ -120,8 +107,13 @@ func Apply(ctx context.Context, resources []Resource, client *api.Client, state 
 			}
 			continue
 		}
+
+		var responseData interface{}
+		if secret != nil && secret.Data != nil {
+			responseData = secret.Data
+		}
 		state.Resources[key] = StateResource{
-			DataDigest:     dataDigestWithRevision(resolvedData, rev),
+			DataDigest:     digest,
 			Dependencies:   r.Dependencies,
 			IgnoreFailures: r.IgnoreFailures,
 			ResponseData:   responseData,
@@ -201,8 +193,7 @@ func formatVaultErr(namespace, path string, err error) string {
 
 // dataToDataMap converts resource data to map[string]interface{} for Vault API.
 func dataToDataMap(data interface{}) (map[string]interface{}, error) {
-	norm := normalizeValue(data)
-	m, ok := norm.(map[string]interface{})
+	m, ok := data.(map[string]interface{})
 	if !ok {
 		return nil, fmt.Errorf("data must be an object (map)")
 	}
@@ -226,8 +217,7 @@ func normalizeMethod(m string) string {
 }
 
 func dataDigestWithRevision(data interface{}, revision uint64) string {
-	norm := normalizeValue(data)
-	input := map[string]interface{}{"data": norm, "revision": revision}
+	input := map[string]interface{}{"data": data, "revision": revision}
 	b, err := json.Marshal(input)
 	if err != nil {
 		return ""
