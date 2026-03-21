@@ -2,15 +2,23 @@ BINARY_NAME := gitops
 TOOL_BINARY  := gitops-tool
 VAULT_BINARY := vault
 # Version for -X ldflag (empty if not in git / no tag)
-VERSION      := $(shell git describe --tags --always --dirty 2>/dev/null || true)
+VERSION      := $(shell git describe --tags --always --dirty=-dev 2>/dev/null || true)
 LDFLAGS      := -s -w
+
+PLUGIN_LDFLAGS := $(LDFLAGS) -X github.com/trublast/vault-plugin-gitops.projectVersion=$(VERSION)
 
 .PHONY: all build build-tool clean test e2e
 
 all: build build-tool
 
 build:
-	go build -ldflags '$(LDFLAGS) -X github.com/trublast/vault-plugin-gitops.projectVersion=$(VERSION)' -o $(BINARY_NAME) ./cmd/plugin-gitops
+	go build -ldflags '$(PLUGIN_LDFLAGS)' -o $(BINARY_NAME) ./cmd/plugin-gitops
+
+build-gitops-only:
+	go build -tags no_terraform -ldflags '$(PLUGIN_LDFLAGS)' -o $(BINARY_NAME) ./cmd/plugin-gitops
+
+build-terraform-only:
+	GOOS=linux go build -tags no_gitops -ldflags '$(PLUGIN_LDFLAGS)' -o $(BINARY_NAME) ./cmd/plugin-gitops
 
 build-tool:
 	go build -ldflags '$(LDFLAGS) -X main.projectVersion=$(VERSION)' -o $(TOOL_BINARY) ./cmd/tool

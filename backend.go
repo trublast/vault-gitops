@@ -8,11 +8,10 @@ import (
 
 	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/logical"
+	"github.com/trublast/vault-plugin-gitops/pkg/engine"
 	"github.com/trublast/vault-plugin-gitops/pkg/git"
 	"github.com/trublast/vault-plugin-gitops/pkg/git_repository"
-	"github.com/trublast/vault-plugin-gitops/pkg/gitops"
 	"github.com/trublast/vault-plugin-gitops/pkg/pgp"
-	"github.com/trublast/vault-plugin-gitops/pkg/terraform"
 	"github.com/trublast/vault-plugin-gitops/pkg/util"
 	"github.com/trublast/vault-plugin-gitops/pkg/vault_client"
 )
@@ -31,6 +30,8 @@ type backend struct {
 
 	// engineMode is set from mount option "type" (gitops or terraform), default gitops
 	engineMode string
+	// engine dispatches commit processing and API paths for the active mode
+	engine engine.Engine
 
 	// Vault token expire time stored in memory (not in storage)
 	vaultTokenTTL         *vault_client.TokenTTL
@@ -66,14 +67,14 @@ func newBackend(c *logical.BackendConfig) (*backend, error) {
 			engineMode = t
 		}
 	}
-	switch engineMode {
-	case EngineModeGitOps, EngineModeTerraform:
-	default:
-		return nil, fmt.Errorf("invalid mount option type=%q, must be %q or %q", engineMode, EngineModeGitOps, EngineModeTerraform)
+	eng, ok := engine.Get(engineMode)
+	if !ok {
+		return nil, fmt.Errorf("engine %q not available (registered engines: %v); check build tags", engineMode, engine.RegisteredNames())
 	}
 
 	b := &backend{
 		engineMode:         engineMode,
+		engine:             eng,
 		processGitCASGuard: new(uint32),
 	}
 
@@ -110,12 +111,7 @@ func newBackend(c *logical.BackendConfig) (*backend, error) {
 			},
 		},
 	)
-	switch engineMode {
-	case EngineModeGitOps:
-		baseBackend.Paths = framework.PathAppend(baseBackend.Paths, gitops.Paths(baseBackend))
-	case EngineModeTerraform:
-		baseBackend.Paths = framework.PathAppend(baseBackend.Paths, terraform.Paths(baseBackend))
-	}
+	baseBackend.Paths = framework.PathAppend(baseBackend.Paths, b.engine.Paths(baseBackend))
 
 	b.Backend = baseBackend
 
