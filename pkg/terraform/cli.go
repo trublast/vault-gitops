@@ -40,14 +40,15 @@ const (
 
 // CLIConfig contains configuration for terraform CLI execution
 type CLIConfig struct {
-	VaultAddr      string
-	VaultToken     string
-	VaultNamespace string
-	TfPath         string
-	TfBinary       string
-	TfBinarySHA256 string
-	Storage        logical.Storage
-	Logger         hclog.Logger
+	VaultAddr        string
+	VaultToken       string
+	VaultNamespace   string
+	VaultCACertBytes string
+	TfPath           string
+	TfBinary         string
+	TfBinarySHA256   string
+	Storage          logical.Storage
+	Logger           hclog.Logger
 }
 
 // ApplyTerraformFromFS extracts terraform files from the given filesystem and applies them using Terraform CLI.

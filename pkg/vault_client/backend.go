@@ -20,6 +20,7 @@ const (
 	FieldNameWrappingToken    = "wrapping_token"
 	FieldNameVaultNamespace   = "vault_namespace"
 	FieldNameVaultTokenRotate = "rotate"
+	FieldNameVaultCACertBytes = "vault_cacert_bytes"
 	StorageKeyConfiguration   = "vault_client_configuration"
 )
 
@@ -28,6 +29,7 @@ type Configuration struct {
 	VaultToken       string `structs:"vault_token" json:"vault_token"`
 	VaultNamespace   string `structs:"vault_namespace" json:"vault_namespace"`
 	VaultTokenRotate bool   `structs:"rotate" json:"rotate"`
+	VaultCACertBytes string `structs:"vault_cacert_bytes" json:"vault_cacert_bytes,omitempty"`
 }
 
 type backend struct {
@@ -64,11 +66,15 @@ func Paths(baseBackend *framework.Backend) []*framework.Path {
 					Type:        framework.TypeString,
 					Description: "Vault namespace for API access.",
 				},
-				FieldNameVaultTokenRotate: {
-					Type:        framework.TypeBool,
-					Description: "Rotate vault token.",
-					Default:     false,
-				},
+			FieldNameVaultTokenRotate: {
+				Type:        framework.TypeBool,
+				Description: "Rotate vault token.",
+				Default:     false,
+			},
+			FieldNameVaultCACertBytes: {
+				Type:        framework.TypeString,
+				Description: "PEM-encoded CA certificate for Vault TLS verification.",
+			},
 			},
 
 			Operations: map[logical.Operation]framework.OperationHandler{
@@ -130,6 +136,12 @@ func (b *backend) pathConfigureCreateOrUpdate(ctx context.Context, req *logical.
 		config.VaultNamespace = vaultNamespaceVal.(string)
 	} else if req.Operation == logical.UpdateOperation && existingConfig != nil {
 		config.VaultNamespace = existingConfig.VaultNamespace
+	}
+
+	if caCertVal, ok := fields.GetOk(FieldNameVaultCACertBytes); ok {
+		config.VaultCACertBytes = caCertVal.(string)
+	} else if req.Operation == logical.UpdateOperation && existingConfig != nil {
+		config.VaultCACertBytes = existingConfig.VaultCACertBytes
 	}
 
 	vaultTokenVal, vaultTokenOk := fields.GetOk(FieldNameVaultToken)
@@ -200,9 +212,9 @@ func (b *backend) pathConfigureRead(ctx context.Context, req *logical.Request, _
 		return nil, nil
 	}
 
-	// Return only vault_addr, not vault_token
 	data := map[string]interface{}{
-		FieldNameVaultAddr: config.VaultAddr,
+		FieldNameVaultAddr:        config.VaultAddr,
+		FieldNameVaultCACertBytes: config.VaultCACertBytes != "",
 	}
 
 	return &logical.Response{Data: data}, nil
@@ -272,6 +284,13 @@ func NewClientFromConfig(config *Configuration) (*api.Client, error) {
 	}
 	if config.VaultAddr != "" {
 		cfg.Address = config.VaultAddr
+	}
+	if config.VaultCACertBytes != "" {
+		if err := cfg.ConfigureTLS(&api.TLSConfig{
+			CACertBytes: []byte(config.VaultCACertBytes),
+		}); err != nil {
+			return nil, fmt.Errorf("configuring vault TLS: %w", err)
+		}
 	}
 	client, err := api.NewClient(cfg)
 	if err != nil {

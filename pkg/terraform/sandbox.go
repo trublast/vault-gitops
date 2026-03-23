@@ -132,14 +132,30 @@ func buildSandboxEnv(config CLIConfig) []string {
 		"CHECKPOINT_DISABLE=true",
 	}
 
+	// Vault connection settings: prefer plugin config, fall back to host environment.
 	if config.VaultAddr != "" {
 		env = append(env, "VAULT_ADDR="+config.VaultAddr)
+	} else if v := os.Getenv("VAULT_ADDR"); v != "" {
+		env = append(env, "VAULT_ADDR="+v)
 	}
 	if config.VaultToken != "" {
 		env = append(env, "VAULT_TOKEN="+config.VaultToken)
 	}
 	if config.VaultNamespace != "" {
 		env = append(env, "VAULT_NAMESPACE="+config.VaultNamespace)
+	}
+
+	// CA certificate for Vault TLS: try plugin config, then VAULT_CACERT_BYTES env,
+	// then read the file pointed to by VAULT_CACERT. The cert is passed inline
+	// because the sandbox rootfs does not have access to the host filesystem.
+	if config.VaultCACertBytes != "" {
+		env = append(env, "VAULT_CACERT_BYTES="+config.VaultCACertBytes)
+	} else if v := os.Getenv("VAULT_CACERT_BYTES"); v != "" {
+		env = append(env, "VAULT_CACERT_BYTES="+v)
+	} else if certFile := os.Getenv("VAULT_CACERT"); certFile != "" {
+		if data, err := os.ReadFile(certFile); err == nil {
+			env = append(env, "VAULT_CACERT_BYTES="+string(data))
+		}
 	}
 
 	return env

@@ -34,14 +34,15 @@ func (e *engineImpl) ProcessCommit(ctx context.Context, storage logical.Storage,
 		return fmt.Errorf("unable to get terraform configuration: %w", err)
 	}
 	cliCfg := CLIConfig{
-		VaultAddr:      vaultConfig.VaultAddr,
-		VaultToken:     vaultConfig.VaultToken,
-		VaultNamespace: vaultConfig.VaultNamespace,
-		TfPath:         tfConfig.TfPath,
-		TfBinary:       tfConfig.TfBinary,
-		TfBinarySHA256: tfConfig.TfBinarySHA256,
-		Storage:        storage,
-		Logger:         logger,
+		VaultAddr:        vaultConfig.VaultAddr,
+		VaultToken:       vaultConfig.VaultToken,
+		VaultNamespace:   vaultConfig.VaultNamespace,
+		VaultCACertBytes: vaultConfig.VaultCACertBytes,
+		TfPath:           tfConfig.TfPath,
+		TfBinary:         tfConfig.TfBinary,
+		TfBinarySHA256:   tfConfig.TfBinarySHA256,
+		Storage:          storage,
+		Logger:           logger,
 	}
 	if err := ApplyTerraformFromFS(ctx, worktreeFS, cliCfg); err != nil {
 		return fmt.Errorf("terraform apply: %w", err)
