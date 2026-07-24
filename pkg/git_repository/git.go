@@ -156,7 +156,7 @@ func (g gitService) cloneGit(config *Configuration) (*goGit.Repository, gitCommi
 	}
 
 	var gitRepo *goGit.Repository
-	if gitRepo, err = trdlGit.CloneInMemory(config.GitRepoUrl, cloneOptions); err != nil {
+	if gitRepo, err = trdlGit.CloneInMemory(g.ctx, config.GitRepoUrl, cloneOptions); err != nil {
 		return nil, "", fmt.Errorf("cloning in memory: %w", err)
 	}
 
