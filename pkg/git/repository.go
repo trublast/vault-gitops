@@ -2,6 +2,7 @@ package git
 
 import (
 	"archive/tar"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -63,7 +64,7 @@ func (s *limitedStorage) RawObjectWriter(typ plumbing.ObjectType, sz int64) (io.
 	return w, nil
 }
 
-func CloneInMemory(url string, opts CloneOptions) (*git.Repository, error) {
+func CloneInMemory(ctx context.Context, url string, opts CloneOptions) (*git.Repository, error) {
 	var storer storage.Storer
 	if opts.MaxCloneSizeBytes > 0 {
 		storer = &limitedStorage{
@@ -101,7 +102,7 @@ func CloneInMemory(url string, opts CloneOptions) (*git.Repository, error) {
 		}
 	}
 
-	return git.Clone(storer, fs, cloneOptions)
+	return git.CloneContext(ctx, storer, fs, cloneOptions)
 }
 
 func AddWorktreeFilesToTar(tw *tar.Writer, gitRepo *git.Repository) error {

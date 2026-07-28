@@ -1,6 +1,8 @@
 package git
 
 import (
+	"context"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -10,7 +12,7 @@ var _ = XDescribe("Signatures loader from git NOTES", func() {
 	It("successfully loads werf signatures", func() {
 		tagName := "v1.2.84+fix1"
 
-		repo, err := CloneInMemory("https://github.com/werf/werf.git", CloneOptions{TagName: tagName})
+		repo, err := CloneInMemory(context.Background(), "https://github.com/werf/werf.git", CloneOptions{TagName: tagName})
 		Expect(err).To(Succeed())
 
 		tref, err := repo.Tag(tagName)
