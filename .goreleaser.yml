@@ -15,6 +15,8 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
     flags:
       - -trimpath
+    tags:
+      - enable_terraform
     ldflags:
       - -s
       - -w
@@ -22,7 +24,7 @@ builds:
       - -X {{.ModulePath}}.projectVersion=v{{.Version}}
     binary: "gitops-{{ .Os }}-{{ .Arch }}"
 
-  # Vault plugin binary without terraform (cmd/plugin-gitops, tag no_terraform)
+  # Vault plugin binary without terraform (cmd/plugin-gitops, no enable_terraform tag)
   - id: gitops-notf
     main: ./cmd/plugin-gitops
     env:
@@ -37,8 +39,6 @@ builds:
     mod_timestamp: "{{ .CommitTimestamp }}"
     flags:
       - -trimpath
-    tags:
-      - no_terraform
     ldflags:
       - -s
       - -w

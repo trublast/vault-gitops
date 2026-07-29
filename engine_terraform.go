@@ -1,4 +1,4 @@
-//go:build linux && !no_terraform
+//go:build linux && enable_terraform
 
 package plugin_gitops
 

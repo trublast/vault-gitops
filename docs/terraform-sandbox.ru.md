@@ -214,5 +214,94 @@ make build
 - **Сетевой доступ не ограничен.** Terraform нужна сеть для `init` (скачивание провайдеров) и для работы с Vault API. Для ограничения сети потребуется `CLONE_NEWNET` с настройкой veth/NAT.
 - **Работает только на Linux.** Все файлы пакета `terraform` имеют build tag `//go:build linux`.
 - **Требуются unprivileged user namespaces.** Ядро должно разрешать `CLONE_NEWUSER` без root (`sysctl kernel.unprivileged_userns_clone=1`). В большинстве современных дистрибутивов это включено по умолчанию.
-- **AppArmor может блокировать sandbox.** Ubuntu 23.10+ по умолчанию включает `kernel.apparmor_restrict_unprivileged_userns=1`, что запрещает `mount`/`pivot_root` внутри user namespaces. Необходимо `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0` или AppArmor-профиль с разрешением `userns` для бинарника плагина.
+- **AppArmor может блокировать sandbox.** Ubuntu 23.10+ по умолчанию включает `kernel.apparmor_restrict_unprivileged_userns=1`, что запрещает `mount`/`pivot_root` внутри user namespaces. Варианты решения:
+
+  **Вариант 1 — отключить ограничение глобально (просто, но менее безопасно):**
+
+  ```bash
+  # Временно (до перезагрузки)
+  sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+  # Постоянно
+  echo 'kernel.apparmor_restrict_unprivileged_userns=0' | sudo tee /etc/sysctl.d/60-apparmor-userns.conf
+  sudo sysctl --system
+  ```
+
+  **Вариант 2 — AppArmor-профиль для бинарника плагина (рекомендуется):**
+
+  Создать файл `/etc/apparmor.d/vault-plugin-gitops`:
+
+  ```
+  abi <abi/4.0>,
+  include <tunables/global>
+
+  profile vault-plugin-gitops /opt/vault/plugins/gitops-linux-* flags=(attach_disconnected) {
+    include <abstractions/base>
+    include <abstractions/nameservice>
+
+    # Разрешить создание user namespaces (требуется для sandbox)
+    allow userns,
+
+    # Бинарник плагина
+    /opt/vault/plugins/gitops-linux-*    mr,
+
+    # Vault рабочие каталоги
+    /opt/vault/**                        r,
+
+    # tmpfs для sandbox (tmpDir обычно в /dev/shm или /tmp)
+    /dev/shm/**                          rwk,
+    /tmp/**                              rwk,
+
+    # sandbox-init: записывается плагином в tmpDir и исполняется
+    /dev/shm/*/sandbox-init              rix,
+    /tmp/*/sandbox-init                  rix,
+
+    # Сеть (terraform нужна для init и Vault API)
+    network inet stream,
+    network inet dgram,
+    network inet6 stream,
+    network inet6 dgram,
+
+    # Mount операции внутри user namespace (выполняет sandbox-init)
+    allow mount,
+    allow umount,
+    allow pivot_root,
+  }
+  ```
+
+  > Путь `/opt/vault/plugins/gitops-linux-*` — пример; замените на фактический путь к бинарнику плагина. Если плагин запускается внутри контейнера, профиль нужно применять к процессу контейнера или использовать container-runtime интеграцию (см. ниже).
+
+  Применить профиль:
+
+  ```bash
+  # Загрузить профиль
+  sudo apparmor_parser -r /etc/apparmor.d/vault-plugin-gitops
+
+  # Проверить, что профиль загружен
+  sudo aa-status | grep vault-plugin-gitops
+  ```
+
+  **Вариант 3 — профиль для контейнера (Docker / containerd):**
+
+  Если Vault с плагином работает в контейнере, AppArmor-профиль передаётся при запуске:
+
+  ```bash
+  # Загрузить профиль (тот же файл, но путь внутри контейнера)
+  sudo apparmor_parser -r /etc/apparmor.d/vault-plugin-gitops
+
+  # Docker
+  docker run --security-opt apparmor=vault-plugin-gitops ...
+
+  # Kubernetes (в аннотации Pod)
+  # container.apparmor.security.beta.kubernetes.io/<container-name>: localhost/vault-plugin-gitops
+  ```
+
+  Для Kubernetes 1.30+ можно использовать поле `securityContext.appArmorProfile`:
+
+  ```yaml
+  securityContext:
+    appArmorProfile:
+      type: Localhost
+      localhostProfile: vault-plugin-gitops
+  ```
 - **Distroless совместимость.** sandbox-init статически слинкован и не зависит от libc/shell в контейнере.

@@ -13,13 +13,13 @@ all: build build-tool
 
 # Build the plugin (requires: make build-sandbox-init first).
 build:
-	GOOS=linux go build -ldflags '$(PLUGIN_LDFLAGS)' -o $(BINARY_NAME) ./cmd/plugin-gitops
+	GOOS=linux go build -tags enable_terraform -ldflags '$(PLUGIN_LDFLAGS)' -o $(BINARY_NAME) ./cmd/plugin-gitops
 
 build-gitops-only:
-	go build -tags no_terraform -ldflags '$(PLUGIN_LDFLAGS)' -o $(BINARY_NAME) ./cmd/plugin-gitops
+	go build -ldflags '$(PLUGIN_LDFLAGS)' -o $(BINARY_NAME) ./cmd/plugin-gitops
 
 build-terraform-only:
-	GOOS=linux go build -tags no_gitops -ldflags '$(PLUGIN_LDFLAGS)' -o $(BINARY_NAME) ./cmd/plugin-gitops
+	GOOS=linux go build -tags 'no_gitops,enable_terraform' -ldflags '$(PLUGIN_LDFLAGS)' -o $(BINARY_NAME) ./cmd/plugin-gitops
 
 # Compile the C sandbox-init helper for amd64 and arm64 (static musl).
 # Requires musl cross-compilers or use: make build-sandbox-init-docker
