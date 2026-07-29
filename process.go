@@ -23,7 +23,7 @@ func (b *backend) processCommitWithRepoAtHead(ctx context.Context, storage logic
 	if err != nil {
 		return fmt.Errorf("getting worktree: %w", err)
 	}
-	return b.engine.ProcessCommit(ctx, storage, wt.Filesystem, b.Logger())
+	return b.engine.ProcessCommit(ctx, storage, wt.Filesystem(), b.Logger())
 }
 
 // checkoutRepoToCommit checkouts the repository worktree to the given commit.

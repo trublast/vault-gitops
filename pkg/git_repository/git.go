@@ -8,6 +8,7 @@ import (
 	"time"
 
 	goGit "github.com/go-git/go-git/v6"
+	"github.com/go-git/go-git/v6/plumbing/client"
 	"github.com/go-git/go-git/v6/plumbing/transport/http"
 	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/vault/sdk/logical"
@@ -146,13 +147,13 @@ func (g gitService) cloneGit(config *Configuration) (*goGit.Repository, gitCommi
 		MaxCloneSizeBytes: config.MaxCloneSizeBytes,
 	}
 	if gitCredentials != nil && gitCredentials.Username != "" && gitCredentials.Password != "" {
-		cloneOptions.Auth = &http.BasicAuth{
+		cloneOptions.ClientOptions = append(cloneOptions.ClientOptions, client.WithHTTPAuth(&http.BasicAuth{
 			Username: gitCredentials.Username,
 			Password: gitCredentials.Password,
-		}
+		}))
 	}
 	if config.GitCACertificate != "" {
-		cloneOptions.CABundle = []byte(config.GitCACertificate)
+		cloneOptions.ClientOptions = append(cloneOptions.ClientOptions, client.WithCABundle([]byte(config.GitCACertificate)))
 	}
 
 	var gitRepo *goGit.Repository

@@ -167,7 +167,7 @@ func (b *backend) pathConfigureCreateOrUpdate(ctx context.Context, req *logical.
 
 	// Validate GitRepoUrl if it was provided or is required
 	if config.GitRepoUrl != "" {
-		if _, err := transport.NewEndpoint(config.GitRepoUrl); err != nil {
+		if _, err := transport.ParseURL(config.GitRepoUrl); err != nil {
 			return logical.ErrorResponse("%q field is invalid: %s", FieldNameGitRepoUrl, err), nil
 		}
 	}

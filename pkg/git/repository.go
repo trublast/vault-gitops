@@ -16,7 +16,7 @@ import (
 	"github.com/go-git/go-billy/v6/memfs"
 	git "github.com/go-git/go-git/v6"
 	"github.com/go-git/go-git/v6/plumbing"
-	"github.com/go-git/go-git/v6/plumbing/transport"
+	"github.com/go-git/go-git/v6/plumbing/client"
 	"github.com/go-git/go-git/v6/storage"
 	"github.com/go-git/go-git/v6/storage/memory"
 )
@@ -29,8 +29,9 @@ type CloneOptions struct {
 	BranchName        string
 	ReferenceName     string
 	RecurseSubmodules git.SubmoduleRecursivity
-	Auth              transport.AuthMethod
-	CABundle          []byte
+	// ClientOptions configures the transport client (auth, CA bundle, etc.).
+	// Use client.WithHTTPAuth, client.WithCABundle, client.WithSSHAuth, ...
+	ClientOptions []client.Option
 	// MaxCloneSizeBytes limits total size of objects stored during in-memory clone (0 = no limit).
 	// When exceeded, clone fails with ErrCloneSizeLimitExceeded. Use to prevent OOM on large or malicious repos.
 	MaxCloneSizeBytes int64
@@ -93,12 +94,8 @@ func CloneInMemory(ctx context.Context, url string, opts CloneOptions) (*git.Rep
 			cloneOptions.RecurseSubmodules = opts.RecurseSubmodules
 		}
 
-		if opts.Auth != nil {
-			cloneOptions.Auth = opts.Auth
-		}
-
-		if len(opts.CABundle) > 0 {
-			cloneOptions.CABundle = opts.CABundle
+		if len(opts.ClientOptions) > 0 {
+			cloneOptions.ClientOptions = opts.ClientOptions
 		}
 	}
 
@@ -143,7 +140,7 @@ func ForEachWorktreeFile(gitRepo *git.Repository, fileFunc func(path, link strin
 	if err != nil {
 		return fmt.Errorf("unable to get git repository worktree: %w", err)
 	}
-	return ForEachFile(w.Filesystem, fileFunc)
+	return ForEachFile(w.Filesystem(), fileFunc)
 }
 
 // ForEachFile walks all files in the given billy filesystem and calls fileFunc for each.
@@ -213,7 +210,7 @@ func ReadWorktreeFile(gitRepo *git.Repository, path string) ([]byte, error) {
 		return nil, fmt.Errorf("unable to get git repository worktree: %w", err)
 	}
 
-	fs := w.Filesystem
+	fs := w.Filesystem()
 
 	f, err := fs.Open(path)
 	if err != nil {
